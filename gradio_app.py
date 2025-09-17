@@ -391,17 +391,12 @@ def create_interface():
                                     info="每秒显示的帧数，影响视频流畅度"
                                 )
                             
-                            with gr.Row():
-                                height = gr.Slider(
-                                    minimum=480, maximum=720, value=720, step=8,
-                                    label="视频高度",
-                                    info="720p质量更好，480p速度更快"
-                                )
-                                width = gr.Slider(
-                                    minimum=832, maximum=1280, value=1280, step=8,
-                                    label="视频宽度",
-                                    info="与高度对应的宽度设置"
-                                )
+                            resolution = gr.Dropdown(
+                                choices=["720P (720x1280)", "480P (480x832)"],
+                                value="720P (720x1280)",
+                                label="视频分辨率",
+                                info="720P质量更好，480P速度更快"
+                            )
                         
                         # 生成参数折叠面板
                         with gr.Accordion("生成参数", open=True):
@@ -455,9 +450,17 @@ def create_interface():
         def load_model_wrapper(model_type):
             return app.load_model(model_type)
         
-        def generate_video_wrapper(prompt, negative_prompt, ref_image, audio_file, mode, frames, height, width, 
+        def generate_video_wrapper(prompt, negative_prompt, ref_image, audio_file, mode, frames, resolution, 
                                  scale_i, scale_a, scale_t, sampling_steps, seed, fps, progress=gr.Progress()):
             progress(0, desc="准备生成...")
+            
+            # 解析分辨率
+            if "720P" in resolution:
+                height, width = 720, 1280
+            elif "480P" in resolution:
+                height, width = 480, 832
+            else:
+                height, width = 720, 1280  # 默认值
             
             # 创建一个生成器函数来更新进度
             def progress_tracker():
@@ -511,7 +514,7 @@ def create_interface():
         
         generate_btn.click(
             fn=generate_video_wrapper,
-            inputs=[prompt, negative_prompt, ref_image, audio_file, mode, frames, height, width,
+            inputs=[prompt, negative_prompt, ref_image, audio_file, mode, frames, resolution,
                    scale_i, scale_a, scale_t, sampling_steps, seed, fps],
             outputs=[output_video, status_text]
         )
@@ -544,7 +547,7 @@ def create_interface():
             - **音频引导强度 (scale_a)**: 5.0-6.0 适合大多数情况，更高值使动作更紧密跟随音频
             - **文本引导强度 (scale_t)**: 4.0-6.0 平衡创意和准确性，更高值使生成更符合文本描述
             - **采样步数**: 30-50 平衡质量和速度，更多步数生成质量更高但耗时更长
-            - **视频分辨率**: 720p 质量更好，480p 速度更快
+            - **视频分辨率**: 720P 质量更好，480P 速度更快
             - **帧数**: 97帧适合大多数场景，减少帧数可加快生成速度
             
             ### 常见问题解答：
