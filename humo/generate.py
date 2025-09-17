@@ -711,6 +711,8 @@ class Generator():
             del video, prompt
             torch.cuda.empty_cache()
             gc.collect()
+
+            return pathname
             
 
     def save_sample(self, *, sample: torch.Tensor, audio_path: str, itemname: str):
