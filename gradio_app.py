@@ -133,6 +133,9 @@ class HuMoGradioApp:
         fps: int = 25
     ) -> Tuple[str, str, float]:
         """生成视频"""
+        # 记录开始时间
+        start_time = time.time()
+        
         try:
             # 重置进度
             self.progress = 0
@@ -226,8 +229,15 @@ class HuMoGradioApp:
             
             self.logger.info(f"配置更新完成，开始生成视频...")
 
+            # 记录生成开始时间
+            generation_start_time = time.time()
+            
             # 生成视频 - 使用inference_loop方法
             self.generator.inference_loop()
+            
+            # 记录生成结束时间并计算生成耗时
+            generation_end_time = time.time()
+            generation_duration = generation_end_time - generation_start_time
             
             self.is_generating = False
             self.progress = 100  # 设置为100%完成
@@ -243,12 +253,18 @@ class HuMoGradioApp:
                 # 将相对路径转换为绝对路径
                 video_path = os.path.abspath(video_path)
                 
+                # 计算总耗时
+                total_duration = time.time() - start_time
+                
                 self.logger.info(f"生成完成，视频路径: {video_path}")
+                self.logger.info(f"生成耗时: {generation_duration:.2f}秒")
+                self.logger.info(f"合成总耗时: {total_duration:.2f}秒")
                 self.logger.debug(f"视频文件存在: {os.path.exists(video_path)}")
                 self.logger.debug(f"视频文件是文件: {os.path.isfile(video_path)}")
                 
                 if os.path.exists(video_path):
-                    return video_path, "✅ 视频生成成功！", 100
+                    success_message = f"✅ 视频生成成功！生成耗时: {generation_duration:.2f}秒，总耗时: {total_duration:.2f}秒"
+                    return video_path, success_message, 100
                 else:
                     self.logger.warning(f"视频文件不存在: {video_path}")
                     return "", "❌ 视频文件不存在", 0
@@ -257,6 +273,9 @@ class HuMoGradioApp:
                 return "", "❌ 未找到生成的视频文件", 0
                 
         except Exception as e:
+            # 计算总耗时（即使失败也记录）
+            total_duration = time.time() - start_time
+            self.logger.error(f"视频生成失败，总耗时: {total_duration:.2f}秒")
             traceback.print_exc()
             self.is_generating = False
             return "", f"❌ 视频生成失败: {str(e)}", 0
