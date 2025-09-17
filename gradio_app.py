@@ -16,6 +16,7 @@ import mediapy
 import time
 import time
 import traceback
+import gc
 
 # 添加项目路径
 path_to_insert = "humo"
@@ -25,6 +26,16 @@ if path_to_insert not in sys.path:
 from common.config import load_config, create_object
 from common.distributed import get_device, get_global_rank, init_torch
 from common.logger import get_logger
+from humo.models.utils.utils import tensor_to_video
+
+# 视频尺寸配置
+SIZE_CONFIGS = {
+    '720*1280': (720, 1280),
+    '1280*720': (1280, 720),
+    '480*832': (480, 832),
+    '832*480': (832, 480),
+    '1024*1024': (1024, 1024),
+}
 
 class HuMoGradioApp:
     def __init__(self):
@@ -39,6 +50,10 @@ class HuMoGradioApp:
     def load_model(self, model_type: str = "1.7B"):
         """加载HuMo模型"""
         try:
+            # 先释放显存
+            gc.collect()
+            torch.cuda.empty_cache()
+
             # 根据模型类型设置路径和配置
             if model_type == "1.7B":
                 model_path = "./weights/HuMo/HuMo-1.7B"
@@ -182,58 +197,64 @@ class HuMoGradioApp:
             self.logger.info(f"创建的测试用例文件: {test_case_path}")
             self.logger.info(f"测试用例内容: {test_case}")
             
-            # 更新配置
-            self.config.generation.mode = mode
-            self.config.generation.frames = frames
-            self.config.generation.height = height
-            self.config.generation.width = width
-            self.config.generation.scale_i = scale_i
-            self.config.generation.scale_a = scale_a
-            self.config.generation.scale_t = scale_t
-            self.config.diffusion.timesteps.sampling.steps = sampling_steps
-            self.config.generation.seed = seed
-            self.config.generation.fps = fps
-            self.config.generation.positive_prompt = test_case_path
-            self.config.generation.output.dir = output_dir
-            
-            self.logger.info(f"设置的positive_prompt路径: {test_case_path}")
-            self.logger.info(f"设置的输出目录: {output_dir}")
+            # 使用统一的配置更新方法
+            config_updates = {
+                'mode': mode,
+                'frames': frames,
+                'height': height,
+                'width': width,
+                'scale_i': scale_i,
+                'scale_a': scale_a,
+                'scale_t': scale_t,
+                'seed': seed,
+                'fps': fps,
+                'positive_prompt': test_case_path,
+                'output': {'dir': output_dir}
+            }
             
             # 更新反向提示词配置
             if negative_prompt.strip():
-                self.config.generation.sample_neg_prompt = negative_prompt
+                config_updates['sample_neg_prompt'] = negative_prompt
             
-            self.logger.info(f"设置的正向提示词: {prompt}")
-            self.logger.info(f"设置的反向提示词: {negative_prompt}")
-            self.logger.info(f"设置的视频帧数: {frames}")
-            self.logger.info(f"设置的视频高度: {height}")
-            self.logger.info(f"设置的视频宽度: {width}")
-            self.logger.info(f"设置的图像引导强度: {scale_i}")
-            self.logger.info(f"设置的音频引导强度: {scale_a}")
-            self.logger.info(f"设置的文本引导强度: {scale_t}")
-            self.logger.info(f"设置的采样步数: {sampling_steps}")
-            self.logger.info(f"设置的随机种子: {seed}")
-            self.logger.info(f"设置的帧率: {fps}")
+            # 更新generation配置
+            self.generator.update_generation_config(**config_updates)
+            
+            # 更新其他配置（如diffusion配置）
+            self.generator.update_config(
+                diffusion_timesteps_sampling_steps=sampling_steps
+            )
+            
+            self.logger.info(f"配置更新完成，开始生成视频...")
 
-            # 生成视频
-            video_path = self.generator.inference_loop()
+            # 生成视频 - 使用inference_loop方法
+            self.generator.inference_loop()
             
             self.is_generating = False
             self.progress = 100  # 设置为100%完成
             
-            # 将相对路径转换为绝对路径
-            if video_path:
+            # inference_loop方法会保存视频文件，查找生成的文件
+            output_files = list(Path(output_dir).glob("*.mp4"))
+            
+            self.logger.info(f"查找输出目录: {output_dir}")
+            self.logger.info(f"找到的视频文件: {output_files}")
+            
+            if output_files:
+                video_path = str(output_files[0])
+                # 将相对路径转换为绝对路径
                 video_path = os.path.abspath(video_path)
-            
-            self.logger.info(f"生成完成，视频路径: {video_path}")
-            self.logger.info(f"视频文件存在: {os.path.exists(video_path)}")
-            self.logger.info(f"视频文件是文件: {os.path.isfile(video_path)}")
-            
-            if video_path and os.path.exists(video_path):
-                return video_path, "✅ 视频生成成功！", 100
+                
+                self.logger.info(f"生成完成，视频路径: {video_path}")
+                self.logger.debug(f"视频文件存在: {os.path.exists(video_path)}")
+                self.logger.debug(f"视频文件是文件: {os.path.isfile(video_path)}")
+                
+                if os.path.exists(video_path):
+                    return video_path, "✅ 视频生成成功！", 100
+                else:
+                    self.logger.warning(f"视频文件不存在: {video_path}")
+                    return "", "❌ 视频文件不存在", 0
             else:
-                self.logger.warning(f"视频文件不存在: {video_path}")
-                return "", "❌ 视频生成失败", 0
+                self.logger.warning(f"未找到视频文件，输出目录内容: {list(Path(output_dir).iterdir())}")
+                return "", "❌ 未找到生成的视频文件", 0
                 
         except Exception as e:
             traceback.print_exc()

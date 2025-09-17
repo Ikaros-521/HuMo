@@ -99,7 +99,6 @@ def clever_format(nums, format="%.2f"):
 class Generator():
     def __init__(self, config: DictConfig):
         self.config = config.copy()
-        OmegaConf.set_readonly(self.config, True)
         self.logger = get_logger(self.__class__.__name__)
         
         init_torch(cudnn_benchmark=False)
@@ -462,7 +461,7 @@ class Generator():
         return feat_merge
     
     def forward_tia(self, latents, latents_ref, latents_ref_neg, timestep, arg_t, arg_ta, arg_null):
-        self.logger.info("前向传播TIA...")
+        self.logger.debug("前向传播TIA...")
         neg = self.dit(
             [torch.cat([latent[:,:-latent_ref_neg.shape[1]], latent_ref_neg], dim=1) for latent, latent_ref_neg in zip(latents, latents_ref_neg)], t=timestep, **arg_null
             )[0]
@@ -743,6 +742,40 @@ class Generator():
             raise ValueError
         return pathname
     
+
+    def update_generation_config(self, **kwargs):
+        """动态更新生成配置"""
+        for key, value in kwargs.items():
+            if hasattr(self.config.generation, key):
+                setattr(self.config.generation, key, value)
+                self.logger.info(f"更新配置 generation.{key}: {value}")
+            else:
+                self.logger.warning(f"配置项 generation.{key} 不存在")
+    
+    def update_config(self, **kwargs):
+        """动态更新任意配置项，支持嵌套路径"""
+        for key, value in kwargs.items():
+            if '.' in key:
+                # 处理嵌套配置，如 'diffusion.timesteps.sampling.steps'
+                parts = key.split('.')
+                config_obj = self.config
+                for part in parts[:-1]:
+                    if hasattr(config_obj, part):
+                        config_obj = getattr(config_obj, part)
+                    else:
+                        self.logger.warning(f"配置路径 {key} 不存在")
+                        break
+                else:
+                    # 设置最后一个属性
+                    setattr(config_obj, parts[-1], value)
+                    self.logger.info(f"更新配置 {key}: {value}")
+            else:
+                # 处理顶级配置
+                if hasattr(self.config, key):
+                    setattr(self.config, key, value)
+                    self.logger.info(f"更新配置 {key}: {value}")
+                else:
+                    self.logger.warning(f"配置项 {key} 不存在")
 
     def prepare_positive_prompts(self):
         self.logger.info("准备正面提示...")
